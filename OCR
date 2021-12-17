@@ -1,0 +1,533 @@
+
+#使用环境：
+ #   PaddlePaddle 2.0.1
+  #  Python 3.7
+
+!\rm -rf __MACOSX/ 测试集/ 训练集/ dataset/
+!unzip 2021A_T1_Task1_数据集含训练集和测试集.zip > out.log
+
+
+
+#步骤1：生成额外的数据集
+#这一步可以跳过，如果想要获取更好的精度，可以自己添加。
+
+import os
+import time
+from random import choice, randint, randrange
+
+from PIL import Image, ImageDraw, ImageFont
+
+# 验证码图片文字的字符集
+characters = '拾伍佰正仟万捌贰整陆玖圆叁零角分肆柒亿壹元'
+
+def selectedCharacters(length):
+    result = ''.join(choice(characters) for _ in range(length))
+    return result
+
+
+def getColor():
+    r = randint(0, 100)
+    g = randint(0, 100)
+    b = randint(0, 100)
+    return (r, g, b)
+
+
+def main(size=(200, 100), characterNumber=6, bgcolor=(255, 255, 255)):
+    # 创建空白图像和绘图对象
+    imageTemp = Image.new('RGB', size, bgcolor)
+    draw01 = ImageDraw.Draw(imageTemp)
+
+    # 生成并计算随机字符串的宽度和高度
+    text = selectedCharacters(characterNumber)
+    print(text)
+    font = ImageFont.truetype(font_path, 40)
+    width, height = draw01.textsize(text, font)
+    if width + 2 * characterNumber > size[0] or height > size[1]:
+        print('尺寸不合法')
+        return
+
+    # 绘制随机字符串中的字符
+    startX = 0
+    widthEachCharater = width // characterNumber
+    for i in range(characterNumber):
+        startX += widthEachCharater + 1
+        position = (startX, (size[1] - height) // 2)
+        draw01.text(xy=position, text=text[i], font=font, fill=getColor())
+
+    # 对像素位置进行微调，实现扭曲的效果
+    imageFinal = Image.new('RGB', size, bgcolor)
+    pixelsFinal = imageFinal.load()
+    pixelsTemp = imageTemp.load()
+    for y in range(size[1]):
+        offset = randint(-1, 0)
+        for x in range(size[0]):
+            newx = x + offset
+            if newx >= size[0]:
+                newx = size[0] - 1
+            elif newx < 0:
+                newx = 0
+            pixelsFinal[newx, y] = pixelsTemp[x, y]
+
+    # 绘制随机颜色随机位置的干扰像素
+    draw02 = ImageDraw.Draw(imageFinal)
+    for i in range(int(size[0] * size[1] * 0.07)):
+        draw02.point((randrange(0, size[0]), randrange(0, size[1])), fill=getColor())
+
+    # 保存并显示图片
+    imageFinal.save("dataset/images/%d_%s.jpg" % (round(time.time() * 1000), text))
+
+
+def create_list():
+    images = os.listdir('dataset/images')
+    f_train = open('dataset/train_list.txt', 'w', encoding='utf-8')
+    f_test = open('dataset/test_list.txt', 'w', encoding='utf-8')
+    for i, image in enumerate(images):
+        image_path = os.path.join('dataset/images', image).replace('\\', '/')
+        label = image.split('.')[0].split('_')[1]
+        if i % 100 == 0:
+            f_test.write('%s\t%s\n' % (image_path, label))
+        else:
+            f_train.write('%s\t%s\n' % (image_path, label))
+
+
+def creat_vocabulary():
+    # 生成词汇表
+    with open('dataset/train_list.txt', 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    v = set()
+    for line in lines:
+        _, label = line.replace('\n', '').split('\t')
+        for c in label:
+            v.add(c)
+
+    vocabulary_path = 'dataset/vocabulary.txt'
+    with open(vocabulary_path, 'w', encoding='utf-8') as f:
+        f.write(' \n')
+        for c in v:
+            f.write(c + '\n')
+
+
+if __name__ == '__main__':
+    if not os.path.exists('dataset/images'):
+        os.makedirs('dataset/images')
+
+    # font_path = "font/鸿雷板书简体-Regular.ttf"
+    # for _ in range(1):
+    #    main((300, 48), 8, (251, 253, 241))
+    # for _ in range(1):
+    #     main((200, 48), 6, (209, 219, 189))
+    # for _ in range(1):
+    #     main((180, 48), 4, (209, 219, 189))
+    # for _ in range(1):
+    #     main((150, 48), 2, (162, 198, 182))
+    # create_list()
+    # creat_vocabulary()
+    
+    
+#步骤2：安装依赖环境
+!pip install Levenshtein
+
+
+#步骤3：读取数据集
+import glob, codecs, json, os
+import numpy as np
+
+date_jpgs = glob.glob('./训练集/date/images/*.jpg')
+amount_jpgs = glob.glob('./训练集/amount/images/*.jpg')
+
+lines = codecs.open('./训练集/date/gt.json', encoding='utf-8').readlines()
+lines = ''.join(lines)
+date_gt = json.loads(lines.replace(',\n}', '}'))
+
+lines = codecs.open('./训练集/amount/gt.json', encoding='utf-8').readlines()
+lines = ''.join(lines)
+amount_gt = json.loads(lines.replace(',\n}', '}'))
+
+
+
+data_path = date_jpgs + amount_jpgs
+date_gt.update(amount_gt)
+
+s = ''
+for x in date_gt:
+    s += date_gt[x]
+
+char_list = list(set(list(s)))
+char_list = char_list
+
+
+#步骤4：构造训练集
+
+!mkdir dataset
+!mkdir dataset/images
+!cp 训练集/date/images/*.jpg dataset/images
+!cp 训练集/amount/images/*.jpg dataset/images
+
+
+with open('dataset/vocabulary.txt', 'w') as up:
+    for x in char_list:
+        up.write(x + '\n')
+
+data_path = glob.glob('dataset/images/*.jpg')
+np.random.shuffle(data_path)
+with open('dataset/train_list.txt', 'w') as up:
+    for x in data_path[:-100]:
+        up.write(f'{x}\t{date_gt[os.path.basename(x)]}\n')
+
+with open('dataset/test_list.txt', 'w') as up:
+    for x in data_path[-100:]:
+        up.write(f'{x}\t{date_gt[os.path.basename(x)]}\n')
+        
+        #执行上面程序生成的图片会放在dataset/images目录下，生成的训练数据列表和测试数据列表分别放在dataset/train_list.txt和dataset/test_list.txt，
+        #最后还有个数据词汇表dataset/vocabulary.txt。
+
+#数据列表的格式如下，左边是图片的路径，右边是文字标签。
+
+dataset/images/1617420021182_c1dw.jpg	c1dw
+dataset/images/1617420021204_uvht.jpg	uvht
+dataset/images/1617420021227_hb30.jpg	hb30
+dataset/images/1617420021266_4nkx.jpg	4nkx
+dataset/images/1617420021296_80nv.jpg	80nv
+
+#以下是数据集词汇表的格式，一行一个字符，第一行是空格，不代表任何字符。
+ 
+f
+s
+2
+7
+3
+n
+d
+w
+#训练自定义数据，参考上面的格式即可。
+
+
+#步骤5：训练模型
+
+#不管你是自定义数据集还是使用上面生成的数据，只要文件路径正确，即可开始进行训练。
+#该训练支持长度不一的图片输入，但是每一个batch的数据的数据长度还是要一样的，这种情况下，笔者就用了collate_fn()函数，该函数可以把数据最长的找出来，然后把其他的数据补0，加到相同的长度。
+#同时该函数还要输出它其中每条数据标签的实际长度，因为损失函数需要输入标签的实际长度。
+
+    #在训练过程中，程序会使用VisualDL记录训练结果
+import paddle
+import numpy as np
+import os
+from datetime import datetime
+from utils.model import Model
+from utils.decoder import ctc_greedy_decoder, label_to_string, cer
+from paddle.io import DataLoader
+from utils.data import collate_fn
+from utils.data import CustomDataset
+from visualdl import LogWriter
+
+# 训练数据列表路径
+train_data_list_path = 'dataset/train_list.txt'
+# 测试数据列表路径
+test_data_list_path = 'dataset/test_list.txt'
+# 词汇表路径
+voc_path = 'dataset/vocabulary.txt'
+# 模型保存的路径
+save_model = 'models/'
+# 每一批数据大小
+batch_size = 32
+# 预训练模型路径
+pretrained_model = None
+# 训练轮数
+num_epoch = 100
+# 初始学习率大小
+learning_rate = 1e-3
+# 日志记录噐
+writer = LogWriter(logdir='log')
+
+
+def train():
+    # 获取训练数据
+    train_dataset = CustomDataset(train_data_list_path, voc_path, img_height=32)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, collate_fn=collate_fn, shuffle=True)
+    # 获取测试数据
+    test_dataset = CustomDataset(test_data_list_path, voc_path, img_height=32, is_data_enhance=False)
+    test_loader = DataLoader(dataset=test_dataset, batch_size=batch_size, collate_fn=collate_fn)
+    # 获取模型
+    model = Model(train_dataset.vocabulary, image_height=train_dataset.img_height, channel=1)
+    paddle.summary(model, input_size=(batch_size, 1, train_dataset.img_height, 500))
+    # 设置优化方法
+    boundaries = [30, 100, 200]
+    lr = [0.1 ** l * learning_rate for l in range(len(boundaries) + 1)]
+    scheduler = paddle.optimizer.lr.PiecewiseDecay(boundaries=boundaries, values=lr, verbose=False)
+    optimizer = paddle.optimizer.Adam(parameters=model.parameters(),
+                                      learning_rate=scheduler,
+                                      weight_decay=paddle.regularizer.L2Decay(1e-4))
+    # 获取损失函数
+    ctc_loss = paddle.nn.CTCLoss()
+    # 加载预训练模型
+    if pretrained_model is not None:
+        model.set_state_dict(paddle.load(os.path.join(pretrained_model, 'model.pdparams')))
+        optimizer.set_state_dict(paddle.load(os.path.join(pretrained_model, 'optimizer.pdopt')))
+
+    train_step = 0
+    test_step = 0
+    # 开始训练
+    for epoch in range(num_epoch):
+        for batch_id, (inputs, labels, input_lengths, label_lengths) in enumerate(train_loader()):
+            out = model(inputs)
+            # 计算损失
+            input_lengths = paddle.full(shape=[batch_size], fill_value=out.shape[0], dtype='int64')
+            loss = ctc_loss(out, labels, input_lengths, label_lengths)
+            loss.backward()
+            optimizer.step()
+            optimizer.clear_grad()
+            # 多卡训练只使用一个进程打印
+            if batch_id == 0:
+                print('[%s] Train epoch %d, batch %d, loss: %f' % (datetime.now(), epoch, batch_id, loss))
+                writer.add_scalar('Train loss', loss, train_step)
+                train_step += 1
+        # 执行评估
+        if epoch % 10 == 0:
+            model.eval()
+            cer = evaluate(model, test_loader, train_dataset.vocabulary)
+            print('[%s] Test epoch %d, cer: %f' % (datetime.now(), epoch, cer))
+            writer.add_scalar('Test cer', cer, test_step)
+            test_step += 1
+            model.train()
+        # 记录学习率
+        writer.add_scalar('Learning rate', scheduler.last_lr, epoch)
+        scheduler.step()
+        # 保存模型
+        paddle.save(model.state_dict(), os.path.join(save_model, 'model.pdparams'))
+        paddle.save(optimizer.state_dict(), os.path.join(save_model, 'optimizer.pdopt'))
+
+
+# 评估模型
+def evaluate(model, test_loader, vocabulary):
+    cer_result = []
+    for batch_id, (inputs, labels, _, _) in enumerate(test_loader()):
+        # 执行识别
+        outs = model(inputs)
+        outs = paddle.transpose(outs, perm=[1, 0, 2])
+        outs = paddle.nn.functional.softmax(outs)
+        # 解码获取识别结果
+        labelss = []
+        out_strings = []
+        for out in outs:
+            out_string = ctc_greedy_decoder(out, vocabulary)
+            out_strings.append(out_string)
+        for i, label in enumerate(labels):
+            label_str = label_to_string(label, vocabulary)
+            labelss.append(label_str)
+        for out_string, label in zip(*(out_strings, labelss)):
+            # 计算字错率
+            c = cer(out_string, label) / float(len(label))
+            cer_result.append(c)
+    cer_result = float(np.mean(cer_result))
+    return cer_result
+
+
+if __name__ == '__main__':
+    train()
+
+
+#步骤6：模型预测
+
+#训练结束之后，使用保存的模型进行预测。通过修改image_path指定需要预测的图片路径，解码方法，笔者使用了一个最简单的贪心策略。
+import os
+from PIL import Image
+import numpy as np
+import paddle
+
+from utils.model import Model
+from utils.data import process
+from utils.decoder import ctc_greedy_decoder
+
+
+with open('dataset/vocabulary.txt', 'r', encoding='utf-8') as f:
+    vocabulary = f.readlines()
+
+vocabulary = [v.replace('\n', '') for v in vocabulary]
+
+save_model = 'models/'
+model = Model(vocabulary, image_height=32)
+model.set_state_dict(paddle.load(os.path.join(save_model, 'model.pdparams')))
+model.eval()
+
+
+def infer(path):
+    data = process(path, img_height=32)
+    data = data[np.newaxis, :]
+    data = paddle.to_tensor(data, dtype='float32')
+    # 执行识别
+    out = model(data)
+    out = paddle.transpose(out, perm=[1, 0, 2])
+    out = paddle.nn.functional.softmax(out)[0]
+    # 解码获取识别结果
+    out_string = ctc_greedy_decoder(out, vocabulary)
+
+    # print('预测结果：%s' % out_string)
+    return out_string
+
+if __name__ == '__main__':
+    image_path = 'dataset/images/0_8bb194207a248698017a854d62c96104.jpg'
+    display(Image.open(image_path))
+    print(infer(image_path))
+
+#以下为模型训练的部分输出而并非代码段：
+（ The following is a partial output of the model training, not a code snippet：）
+     W1113 10:05:57.275971   126 device_context.cc:362] Please NOTE: device: 0, GPU Compute Capability: 7.0, Driver API Version: 10.1, Runtime API Version: 10.1
+W1113 10:05:57.280805   126 device_context.cc:372] device: 0, cuDNN Version: 7.6.
+/opt/conda/envs/python35-paddle120-env/lib/python3.7/site-packages/numpy/core/fromnumeric.py:87: VisibleDeprecationWarning: Creating an ndarray from ragged nested sequences (which is a list-or-tuple of lists-or-tuples-or ndarrays with different lengths or shapes) is deprecated. If you meant to do this, you must specify 'dtype=object' when creating the ndarray.
+  return ufunc.reduce(obj, axis, dtype, out, **passkwargs)
+/opt/conda/envs/python35-paddle120-env/lib/python3.7/site-packages/paddle/nn/layer/norm.py:648: UserWarning: When training, we now always track global mean and variance.
+  "When training, we now always track global mean and variance.")
+
+-------------------------------------------------------------------------------------------------------
+ Layer (type)       Input Shape                        Output Shape                       Param #    
+=======================================================================================================
+   Conv2D-1      [[32, 1, 32, 500]]                 [32, 64, 32, 500]                       640      
+    ReLU-1      [[32, 64, 32, 500]]                 [32, 64, 32, 500]                        0       
+  MaxPool2D-1   [[32, 64, 32, 500]]                 [32, 64, 16, 250]                        0       
+   Conv2D-2     [[32, 64, 16, 250]]                 [32, 128, 16, 250]                    73,856     
+    ReLU-2      [[32, 128, 16, 250]]                [32, 128, 16, 250]                       0       
+  MaxPool2D-2   [[32, 128, 16, 250]]                [32, 128, 8, 125]                        0       
+   Conv2D-3     [[32, 128, 8, 125]]                 [32, 256, 8, 125]                     295,168    
+ BatchNorm2D-1  [[32, 256, 8, 125]]                 [32, 256, 8, 125]                      1,024     
+    ReLU-3      [[32, 256, 8, 125]]                 [32, 256, 8, 125]                        0       
+   Conv2D-4     [[32, 256, 8, 125]]                 [32, 256, 8, 125]                     590,080    
+    ReLU-4      [[32, 256, 8, 125]]                 [32, 256, 8, 125]                        0       
+  MaxPool2D-3   [[32, 256, 8, 125]]                 [32, 256, 4, 126]                        0       
+   Conv2D-5     [[32, 256, 4, 126]]                 [32, 512, 4, 126]                    1,180,160   
+ BatchNorm2D-2  [[32, 512, 4, 126]]                 [32, 512, 4, 126]                      2,048     
+    ReLU-5      [[32, 512, 4, 126]]                 [32, 512, 4, 126]                        0       
+   Conv2D-6     [[32, 512, 4, 126]]                 [32, 512, 4, 126]                    2,359,808   
+    ReLU-6      [[32, 512, 4, 126]]                 [32, 512, 4, 126]                        0       
+  MaxPool2D-4   [[32, 512, 4, 126]]                 [32, 512, 2, 127]                        0       
+   Conv2D-7     [[32, 512, 2, 127]]                 [32, 512, 1, 126]                    1,049,088   
+ BatchNorm2D-3  [[32, 512, 1, 126]]                 [32, 512, 1, 126]                      2,048     
+    ReLU-7      [[32, 512, 1, 126]]                 [32, 512, 1, 126]                        0       
+    LSTM-1        [[126, 32, 512]]   [[126, 32, 512], [[2, 126, 256], [2, 126, 256]]]    1,576,960   
+   Linear-1        [[4032, 512]]                       [4032, 256]                        131,328    
+    LSTM-2        [[126, 32, 256]]   [[126, 32, 512], [[2, 126, 256], [2, 126, 256]]]    1,052,672   
+   Linear-2        [[4032, 512]]                        [4032, 21]                        10,773     
+=======================================================================================================
+Total params: 8,325,653
+Trainable params: 8,320,533
+Non-trainable params: 5,120
+-------------------------------------------------------------------------------------------------------
+Input size (MB): 1.95
+Forward/backward pass size (MB): 65125.77
+Params size (MB): 31.76
+Estimated Total Size (MB): 65159.48
+-------------------------------------------------------------------------------------------------------
+
+[2021-11-13 10:06:02.529710] Train epoch 0, batch 0, loss: 108.196701
+
+/opt/conda/envs/python35-paddle120-env/lib/python3.7/site-packages/paddle/fluid/dygraph/math_op_patch.py:238: UserWarning: The dtype of left and right variables are not the same, left dtype is VarType.FP32, but right dtype is VarType.INT64, the right dtype will convert to VarType.FP32
+  format(lhs_dtype, rhs_dtype, lhs_dtype))
+
+[2021-11-13 10:06:13.813138] Test epoch 0, cer: 1.000000
+[2021-11-13 10:06:15.351135] Train epoch 1, batch 0, loss: 2.000788
+[2021-11-13 10:06:27.331733] Train epoch 2, batch 0, loss: 1.726695
+[2021-11-13 10:06:39.256719] Train epoch 3, batch 0, loss: 1.632126
+[2021-11-13 10:06:51.053223] Train epoch 4, batch 0, loss: 1.358111
+[2021-11-13 10:07:03.132675] Train epoch 5, batch 0, loss: 1.098709
+[2021-11-13 10:07:15.020661] Train epoch 6, batch 0, loss: 1.033297
+[2021-11-13 10:07:27.655285] Train epoch 7, batch 0, loss: 0.818024
+[2021-11-13 10:07:39.855014] Train epoch 8, batch 0, loss: 1.124583
+[2021-11-13 10:07:51.754464] Train epoch 9, batch 0, loss: 0.838948
+[2021-11-13 10:08:03.818211] Train epoch 10, batch 0, loss: 0.918665
+[2021-11-13 10:08:15.031882] Test epoch 10, cer: 0.556043
+[2021-11-13 10:08:16.562726] Train epoch 11, batch 0, loss: 0.790987
+[2021-11-13 10:08:28.534561] Train epoch 12, batch 0, loss: 1.167500
+[2021-11-13 10:08:40.532282] Train epoch 13, batch 0, loss: 1.007731
+[2021-11-13 10:08:52.680322] Train epoch 14, batch 0, loss: 1.303900
+[2021-11-13 10:09:04.828809] Train epoch 15, batch 0, loss: 0.640286
+[2021-11-13 10:09:16.944250] Train epoch 16, batch 0, loss: 0.926623
+[2021-11-13 10:09:28.803841] Train epoch 17, batch 0, loss: 0.776034
+[2021-11-13 10:09:40.710312] Train epoch 18, batch 0, loss: 0.964071
+[2021-11-13 10:09:52.649561] Train epoch 19, batch 0, loss: 0.839559
+[2021-11-13 10:10:04.644601] Train epoch 20, batch 0, loss: 0.399815
+[2021-11-13 10:10:16.046862] Test epoch 20, cer: 0.429555
+[2021-11-13 10:10:17.566501] Train epoch 21, batch 0, loss: 0.668917
+[2021-11-13 10:10:29.331909] Train epoch 22, batch 0, loss: 0.509072
+[2021-11-13 10:10:41.186712] Train epoch 23, batch 0, loss: 0.944950
+[2021-11-13 10:10:53.134320] Train epoch 24, batch 0, loss: 0.054262
+[2021-11-13 10:11:05.008267] Train epoch 25, batch 0, loss: 0.584100
+[2021-11-13 10:11:17.015496] Train epoch 26, batch 0, loss: 0.424152
+[2021-11-13 10:11:29.066417] Train epoch 27, batch 0, loss: 0.402954
+
+
+
+
+
+#步骤6：模型预测
+
+#训练结束之后，使用保存的模型进行预测。通过修改image_path指定需要预测的图片路径，解码方法，笔者使用了一个最简单的贪心策略。
+
+import os
+from PIL import Image
+import numpy as np
+import paddle
+
+from utils.model import Model
+from utils.data import process
+from utils.decoder import ctc_greedy_decoder
+
+
+with open('dataset/vocabulary.txt', 'r', encoding='utf-8') as f:
+    vocabulary = f.readlines()
+
+vocabulary = [v.replace('\n', '') for v in vocabulary]
+
+save_model = 'models/'
+model = Model(vocabulary, image_height=32)
+model.set_state_dict(paddle.load(os.path.join(save_model, 'model.pdparams')))
+model.eval()
+
+
+def infer(path):
+    data = process(path, img_height=32)
+    data = data[np.newaxis, :]
+    data = paddle.to_tensor(data, dtype='float32')
+    # 执行识别
+    out = model(data)
+    out = paddle.transpose(out, perm=[1, 0, 2])
+    out = paddle.nn.functional.softmax(out)[0]
+    # 解码获取识别结果
+    out_string = ctc_greedy_decoder(out, vocabulary)
+
+    # print('预测结果：%s' % out_string)
+    return out_string
+
+if __name__ == '__main__':
+    image_path = 'dataset/images/0_8bb194207a248698017a854d62c96104.jpg'
+    display(Image.open(image_path))
+    print(infer(image_path))
+#预测结束会有一个预测的结果出现
+
+from tqdm import tqdm, tqdm_notebook
+
+result_dict = {}
+for path in tqdm(glob.glob('./测试集/date/images/*.jpg')):
+    text = infer(path)
+    result_dict[os.path.basename(path)] = {
+        'result': text,
+        'confidence': 0.9
+    }
+
+for path in tqdm(glob.glob('./测试集/amount/images/*.jpg')):
+    text = infer(path)
+    result_dict[os.path.basename(path)] = {
+        'result': text,
+        'confidence': 0.9
+    }
+ #上述部分运行结束会有形如以下的进度条出现   
+#100%|██████████| 1000/1000 [00:06<00:00, 146.28it/s]
+#100%|██████████| 1000/1000 [00:08<00:00, 118.13it/s]
+
+
+
+with open('answer.json', 'w', encoding='utf-8') as up:
+    json.dump(result_dict, up, ensure_ascii=False, indent=4)
+
+!zip answer.json.zip answer.json
+#会显示准确率：adding: answer.json (deflated 85%)
+
+
